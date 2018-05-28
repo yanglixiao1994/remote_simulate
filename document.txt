@@ -1,0 +1,5 @@
+This application is split into two part--the controller and the capturer.The Controller send boxes to the capturer which run the unreal engine to simulate the physicy and generates the pointclouds.
+The network part uses socket to send and recv data.And the protocal is simple and clean.BTW,it adopts a synchronous mode means that you should wait until you have read/recved data from the peer.
+
+
+int send_int()
