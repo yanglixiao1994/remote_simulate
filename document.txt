@@ -1,5 +1,68 @@
-This application is split into two part--the controller and the capturer.The Controller send boxes to the capturer which run the unreal engine to simulate the physicy and generates the pointclouds.
-The network part uses socket to send and recv data.And the protocal is simple and clean.BTW,it adopts a synchronous mode means that you should wait until you have read/recved data from the peer.
+The simulator is split into two parts --the client(controller) and the server(capturer).
+The server receives boxes data(id,position,quaternion,size)from the client,generates the boxes,do the physical simulation in unreal engine and send back the point cloud file and pose of all boxes.
+All boxes in UE4 will be set up with 100kg and will do free fall under 1G gravity.
+We provide two ways to send the boxes data. 
+1.send a txt file with all boxes in this format:
+id positionX positionY positionZ QuaternionW QuaternionX QuaternionY QuaternionZ sizeX sizeY sizeZ
+2.send your box data one by one(same format as above) and use "receive_point_cloud() & receive_ue4_box()" to receive.
+BTW,the box id should begin with 0.
+The network part uses socket to send and recv data,it adopts a synchronous mode means that you should wait until you have read/recved data from the peer.
+There is only one class you should pay attention to--the controller class.
+Here are the most important APIs of this class provided:
+(If you do not want to extents the protocal,you do not need to care about the Command&&Data.The only thing you need to do is ensuring the send/recv ordering.)
+1.
+void connect_capturer(const std::string &ip, unsigned int port);
+You should first call this function to connect the clients,the default port in server is 8888.
+
+2.
+void reset();
+If you want to restart generate box,you can call the reset().
+
+3.
+void send_int(int);
+int receive_int();
+void send_float(float);
+float receive_float();
+Send/Recv an data(4 bytes)to the peer.
+The basic data type,and you can send it directly to the peer.	
+
+4.
+void send_buff(const char*buff, int size);
+Send a buff(with buff's first byte and the size in bytes)to the peer.
+
+5.
+void send_command(Command);
+Evertime you want the server to do something,you should first inform it with a Command.
+The defination of the Command is:
+enum class Command:char
+{
+spawn_box,
+capture_pointcloud,
+capture_ue4_boxs_pos,
+}
+	
+6.
+void send_pcl_box(const pcl_box&);
+Evertime you want to produce a box,you need to fill up a pcl_box struct and invoke this function with the struct.
+(This function will automatically send Command and Data header,so you don't need to take care of.)
+7.
+std::string receive_point_cloud();
+Once you invoke this function,the server will start to simulate and generate the boxes' point cloud.(It will take some time,please wait.)
+(This function will automatically send Command and Data header,so you don't need to take care of.)
+8.
+std::string receive_ue4_box();
+If you want the boxes pose(id,position,rotate(Euler angle),size),you need to invoke this function.
+(This function will automatically send Command and Data header,so you don't need to take care of.)
+9.
+Data receive_data_header();
+void send_data_header(Data);
+When you send a complex data struct,you should first send the data header to inform the peer to handle the data.
+For now,the Data is defined:
+enum class Data:char
+{
+	pointcloud,
+	ue4_box,
+	pcl_box,
+};
 
 
-int send_int()
