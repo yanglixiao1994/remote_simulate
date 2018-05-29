@@ -1,17 +1,12 @@
 ﻿#define _WINSOCK_DEPRECATED_NO_WARNINGS
-#include"controller.h"
+#include "controller.h"
 #include <thread>
 #include <stdlib.h>
 #include <string>
 int controller::count = 0;
 controller::controller(){
-	WSADATA wsData;
-	WORD wr = MAKEWORD(2, 2);
-	if (WSAStartup(wr, &wsData) != 0)
-	{
-		//std::cout << "create ws32 failed." << std::endl;
-		std::abort();
-	}
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("cloud viewer"));
+	viewer_ = viewer;
 }
 int controller::countnum(std::string&str) {
 	int count = 0;
@@ -21,50 +16,70 @@ int controller::countnum(std::string&str) {
 	}
 	return count;
 }
+
 void controller::connect_capturer(const std::string &ip, unsigned int port) {
-	conn = socket(AF_INET, SOCK_STREAM, 0);
-	if (conn == INVALID_SOCKET)
-	{
-		//std::cout << "create socket failed." << std::endl;
-		std::abort();
-	}
-	sockaddr_in saServer;
-	saServer.sin_family = AF_INET;
-	saServer.sin_addr.S_un.S_addr = inet_addr(ip.c_str());
-	saServer.sin_port = htons(port);
-	if (connect(conn, (sockaddr*)&saServer, sizeof(sockaddr_in)) == SOCKET_ERROR)
-	{
-		//std::cout << "connect fail." << WSAGetLastError() << std::endl;
-		closesocket(conn);
-		std::abort();
-	}
-	//std::cout << "connect success." << std::endl;
+	int cli_sockfd;/*客户端SOCKET */    
+    int addrlen;    
+    struct sockaddr_in ser_addr,/* 服务器的地址*/    
+    cli_addr;/* 客户端的地址*/     
+    
+    conn=socket(AF_INET,SOCK_STREAM,0);/*创建连接的SOCKET */    
+    
+    if(cli_sockfd<0){/*创建失败 */    
+        fprintf(stderr,"socker Error:%s\n",strerror(errno));    
+        exit(1);    
+    }    
+    /* 初始化客户端地址*/    
+    // addrlen=sizeof(struct sockaddr_in);    
+    // bzero(&cli_addr,addrlen);    
+    // cli_addr.sin_family=AF_INET;    
+    // cli_addr.sin_addr.s_addr=htonl(INADDR_ANY);    
+    // cli_addr.sin_port=0;    
+    // if(bind(cli_sockfd,(struct sockaddr*)&cli_addr,addrlen)<0){    
+    //     /*绑定失败 */    
+    //     fprintf(stderr,"Bind Error:%s\n",strerror(errno));    
+    //     exit(1);    
+    // }    
+    /* 初始化服务器地址*/    
+    addrlen=sizeof(struct sockaddr_in);    
+    bzero(&ser_addr,addrlen);    
+    ser_addr.sin_family=AF_INET;    
+    ser_addr.sin_addr.s_addr=inet_addr(ip.c_str());    
+    ser_addr.sin_port=htons(8888);    
+    if(connect(conn,(struct sockaddr*)&ser_addr, addrlen)!=0)/*请求连接*/    
+    {    
+        /*连接失败 */    
+        fprintf(stderr,"Connect Error:%s\n",strerror(errno));    
+        close(cli_sockfd);    
+        exit(1);    
+    }    
 }
+
 void controller::reset() {
 	send_command(Command::reset);
 }
 void controller::send_int(int data) {
-	if (send(conn, (char*)&data, sizeof(data), 0) == SOCKET_ERROR)
+	if (send(conn, (char*)&data, sizeof(data), 0) < 0)
 	{
 		//std::cout << "send int fail." << WSAGetLastError() << std::endl;
 		std::abort();
 	}
 }
 void controller::send_float(float data) {
-	if (send(conn, (char*)&data, sizeof(data), 0) == SOCKET_ERROR)
+	if (send(conn, (char*)&data, sizeof(data), 0) < 0)
 	{
 		//std::cout << "send float fail." << WSAGetLastError() << std::endl;
 		std::abort();
 	}
 }
 void controller::send_buff(const char*buff, int size) {
-	if (send(conn, buff, size, 0) == SOCKET_ERROR) {
+	if (send(conn, buff, size, 0) < 0) {
 		//std::cout << "send buff error." << std::endl;
 		std::abort();
 	}
 }
 void controller::send_command(Command cmd) {
-	if (send(conn, (char*)&cmd, sizeof(Command), 0) == SOCKET_ERROR)
+	if (send(conn, (char*)&cmd, sizeof(Command), 0) < 0)
 	{
 		//std::cout << "send int fail." << WSAGetLastError() << std::endl;
 		std::abort();
@@ -97,7 +112,10 @@ void controller::send_pcl_box(const pcl_box&box) {//const pcl_box&box
 }
 std::string controller::receive_point_cloud() {
 	send_command(Command::capture_pointcloud);
-	if (Data::pointcloud != receive_data_header()) {
+	Data d = receive_data_header();
+	Data t = Data::pointcloud;
+
+	if (Data::pointcloud != d) {
 		error("No recv pointcloud header.");
 		//std::cout << "Not Receive PointCloud." << std::endl;
 		//std::abort();
@@ -105,7 +123,11 @@ std::string controller::receive_point_cloud() {
 	int size = receive_int();
 	std::string buff;
 	buff.resize(size);
-	if (size != recv(conn, &buff[0], size, 0)) {
+	int len = recv(conn, &buff[0], size, 0);	
+	while(len != size){
+		len += recv(conn,&buff[len],size - len,0);
+	}
+	if (size != len) {
 		error("Recving pointcloud Error.");
 		//std::cout << "Receive Point Cloud Failed." << std::endl;
 		//std::abort();
@@ -130,14 +152,27 @@ std::string controller::receive_ue4_box() {
 	//box->sizex = receive_float();
 	//box->sizey = receive_float();
 	//box->sizez = receive_float();
+	// int size = receive_int();
+	// std::string buff;
+	// buff.reserve(size);
+	// if (size != recv(conn, &buff[0], size, 0)) {
+	// 	error("Recving pointcloud Error.");
+	// 	//std::cout << "Receive Point Cloud Failed." << std::endl;
+	// 	//std::abort();
+	// }
 	int size = receive_int();
 	std::string buff;
-	buff.reserve(size);
-	if (size != recv(conn, &buff[0], size, 0)) {
-		error("Recving pointcloud Error.");
+	buff.resize(size);
+	int len = recv(conn, &buff[0], size, 0);	
+	while(len != size){
+		len += recv(conn,&buff[len],size - len,0);
+	}
+	if (size != len) {
+		error("Recving ue4 Error.");
 		//std::cout << "Receive Point Cloud Failed." << std::endl;
 		//std::abort();
 	}
+
 	print("Already recved ue4boxes.");
 	return buff;
 }
@@ -242,9 +277,57 @@ void controller::make_decision() {
 	}
 }
 void controller::send_data_header(Data d) {
-	if (send(conn, (char*)&d, sizeof(Data), 0) == SOCKET_ERROR)
+	if (send(conn, (char*)&d, sizeof(Data), 0) < 0)
 	{
 		//std::cout << "send data header fail." << WSAGetLastError() << std::endl;
 		std::abort();
 	}
 }
+
+int controller::viewer(const std::string& pcd_name, const std::string& pose_name){
+	float PI = 3.141592;
+	float id,x,y,z;
+    float rotation_x,rotation_y,rotation_z;
+    float size_x,size_y,size_z;
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+    std::string pcd_file = pcd_name;
+    std::string pose_file = pose_name;
+
+    pcl::io::loadPCDFile (pcd_file, *cloud);
+
+    ifstream inf;
+    inf.open(pose_file);
+
+    if (cloud->size() == 0)
+    {
+        return -1;
+    }
+    viewer_->addCoordinateSystem();
+    viewer_->addPointCloud(cloud);
+    int cnt = 0;
+    while(!inf.eof()){
+
+        inf >> id >> x >> y >> z >> rotation_x >> rotation_y >> rotation_z >> size_x >> size_y >> size_z;
+        float roll = -(rotation_z * PI / 180), pitch = -(rotation_y * PI / 180), yaw = rotation_x * PI / 180; 
+        Eigen::Quaternionf q;
+        q = Eigen::AngleAxisf(roll, Eigen::Vector3f::UnitY())
+            * Eigen::AngleAxisf(pitch, Eigen::Vector3f::UnitX())
+            * Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitZ());
+        Eigen::Vector3f bboxTransform {x,y,z};
+        std::cout << "Box: " << id << std::endl << "position: " << x << std::endl << y << std::endl << z << std::endl;
+        std::cout << "Quaternion: "  <<std::endl<< q.coeffs() << std::endl;
+        viewer_->addCube(bboxTransform, q , size_x,size_y,size_z, std::to_string(cnt));
+        cnt++;
+        
+    }
+    viewer_->spin();
+    viewer_->removeAllPointClouds();
+    viewer_->removeAllShapes();
+    inf.close();
+    return 1;
+}
+
+
+//0 0 0 500 1 0 0 0 200 200 150
+//1 0 0 800 1 0 0 0 100 100 100
